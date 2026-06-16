@@ -36,3 +36,20 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Go ###
+bin/
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+### Environment ###
+.env
+
+### Data ###
+data/
