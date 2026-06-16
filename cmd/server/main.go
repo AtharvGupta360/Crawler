@@ -12,6 +12,7 @@ import (
 
 	"github.com/AtharvGupta360/JobCrawl/internal/api"
 	"github.com/AtharvGupta360/JobCrawl/internal/config"
+	"github.com/AtharvGupta360/JobCrawl/internal/crawler"
 	"github.com/AtharvGupta360/JobCrawl/internal/store"
 	"github.com/joho/godotenv"
 )
@@ -64,8 +65,31 @@ func main() {
 	}
 	defer redis.Close()
 
+	// ── Seed default companies ──
+	if err := crawler.SeedDefaultCompanies(ctx, pg, logger); err != nil {
+		logger.Warn("failed to seed companies", "error", err)
+	}
+
+	// ── Crawlers ──
+	rateLimiter := crawler.NewRateLimiter(cfg.CrawlRateLimitPerSecond, 3, logger)
+	circuitBreaker := crawler.NewCircuitBreaker(5, 5*time.Minute, logger)
+
+	crawlers := []crawler.Crawler{
+		crawler.NewGreenhouseCrawler(rateLimiter, circuitBreaker, cfg.CrawlUserAgent, logger),
+		crawler.NewLeverCrawler(rateLimiter, circuitBreaker, cfg.CrawlUserAgent, logger),
+		crawler.NewAshbyCrawler(rateLimiter, circuitBreaker, cfg.CrawlUserAgent, logger),
+	}
+
+	// ── Scheduler (crawls every 6 hours) ──
+	scheduler := crawler.NewScheduler(
+		pg, redis, rateLimiter, circuitBreaker,
+		crawlers, 6*time.Hour, logger,
+	)
+	scheduler.Start()
+	defer scheduler.Stop()
+
 	// ── API Server ──
-	server := api.NewServer(pg, redis, logger)
+	server := api.NewServer(pg, redis, scheduler, logger)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.AppPort),

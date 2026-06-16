@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/AtharvGupta360/JobCrawl/internal/crawler"
 	"github.com/AtharvGupta360/JobCrawl/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -12,19 +13,21 @@ import (
 
 // Server holds all API dependencies and the HTTP router.
 type Server struct {
-	router *chi.Mux
-	pg     *store.PostgresStore
-	redis  *store.RedisStore
-	logger *slog.Logger
+	router    *chi.Mux
+	pg        *store.PostgresStore
+	redis     *store.RedisStore
+	scheduler *crawler.Scheduler
+	logger    *slog.Logger
 }
 
 // NewServer creates a new API server with all routes registered.
-func NewServer(pg *store.PostgresStore, redis *store.RedisStore, logger *slog.Logger) *Server {
+func NewServer(pg *store.PostgresStore, redis *store.RedisStore, scheduler *crawler.Scheduler, logger *slog.Logger) *Server {
 	s := &Server{
-		router: chi.NewRouter(),
-		pg:     pg,
-		redis:  redis,
-		logger: logger,
+		router:    chi.NewRouter(),
+		pg:        pg,
+		redis:     redis,
+		scheduler: scheduler,
+		logger:    logger,
 	}
 
 	s.setupMiddleware()
@@ -59,14 +62,12 @@ func (s *Server) setupMiddleware() {
 		MaxAge:           300,
 	}))
 
-	// Content-Type enforcement for POST/PUT
-	s.router.Use(middleware.AllowContentType("application/json"))
-
 	// Compress responses
 	s.router.Use(middleware.Compress(5))
 }
 
 func (s *Server) setupRoutes() {
+	// Health check (no content-type enforcement)
 	s.router.Get("/health", s.handleHealth)
 
 	s.router.Route("/api/v1", func(r chi.Router) {
@@ -86,6 +87,7 @@ func (s *Server) setupRoutes() {
 		// Crawl management
 		r.Route("/crawl", func(r chi.Router) {
 			r.Post("/trigger", s.handleTriggerCrawl)
+			r.Post("/trigger/{companySlug}", s.handleTriggerCrawlCompany)
 			r.Get("/runs", s.handleListCrawlRuns)
 			r.Get("/health", s.handleCrawlerHealth)
 		})

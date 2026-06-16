@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/AtharvGupta360/JobCrawl/internal/models"
@@ -155,8 +154,7 @@ func (s *PostgresStore) UpsertJob(ctx context.Context, j *models.Job) (bool, err
 			team = EXCLUDED.team,
 			last_seen_at = EXCLUDED.last_seen_at,
 			content_hash = EXCLUDED.content_hash,
-			is_active = TRUE,
-			updated_at = NOW()
+			is_active = TRUE
 		RETURNING (xmax = 0) AS is_new
 	`, j.ID, j.CompanyID, j.ExternalID, j.Title, j.NormalizedTitle,
 		j.DescriptionRaw, j.DescriptionClean, j.Location, j.LocationType,
@@ -172,7 +170,7 @@ func (s *PostgresStore) UpsertJob(ctx context.Context, j *models.Job) (bool, err
 
 // GetJobByID fetches a single job with its company.
 func (s *PostgresStore) GetJobByID(ctx context.Context, id uuid.UUID) (*models.Job, error) {
-	j := &models.Job{}
+	j := &models.Job{Company: &models.Company{}}
 	var skillsReqJSON, skillsPrefJSON []byte
 
 	err := s.pool.QueryRow(ctx, `
@@ -435,7 +433,3 @@ type JobStats struct {
 	BySeniority map[string]int `json:"by_seniority"`
 }
 
-// Ensure logger is used to suppress unused import
-func init() {
-	_ = slog.Default()
-}

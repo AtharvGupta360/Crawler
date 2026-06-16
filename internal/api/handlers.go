@@ -19,11 +19,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	health := map[string]any{
-		"status": "ok",
-		"checks": map[string]string{},
+		"status":  "ok",
+		"service": "JobCrawl",
 	}
 
-	checks := health["checks"].(map[string]string)
+	checks := map[string]string{}
 
 	// PostgreSQL
 	if err := s.pg.HealthCheck(ctx); err != nil {
@@ -40,6 +40,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	} else {
 		checks["redis"] = "healthy"
 	}
+
+	health["checks"] = checks
 
 	status := http.StatusOK
 	if health["status"] != "ok" {
@@ -191,10 +193,52 @@ func (s *Server) handleCreateCompany(w http.ResponseWriter, r *http.Request) {
 // Crawl Management Handlers
 // ─────────────────────────────────────────────
 
+// handleTriggerCrawl triggers a crawl for ALL configured companies.
 func (s *Server) handleTriggerCrawl(w http.ResponseWriter, r *http.Request) {
-	// Placeholder — will be implemented when crawlers are built in Phase 2
-	writeJSON(w, http.StatusOK, map[string]string{
-		"message": "crawl trigger endpoint ready — crawlers will be implemented in Phase 2",
+	// Run asynchronously so we don't block the HTTP response
+	go s.scheduler.TriggerCrawlAll(r.Context())
+
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"message": "crawl triggered for all companies",
+		"status":  "running",
+	})
+}
+
+// handleTriggerCrawlCompany triggers a crawl for a specific company by slug.
+func (s *Server) handleTriggerCrawlCompany(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	slug := chi.URLParam(r, "companySlug")
+
+	company, err := s.pg.GetCompanyBySlug(ctx, slug)
+	if err != nil {
+		s.logger.Error("failed to get company", "error", err, "slug", slug)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if company == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "company not found"})
+		return
+	}
+
+	// Run the crawl synchronously for single-company triggers
+	run, err := s.scheduler.TriggerCrawl(ctx, *company)
+	if err != nil {
+		s.logger.Error("crawl failed", "error", err, "company", company.Name)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "crawl failed",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message":      "crawl completed",
+		"company":      company.Name,
+		"jobs_found":   run.JobsFound,
+		"jobs_new":     run.JobsNew,
+		"jobs_updated": run.JobsUpdated,
+		"jobs_removed": run.JobsRemoved,
+		"duration_ms":  run.DurationMs,
 	})
 }
 
@@ -221,19 +265,7 @@ func (s *Server) handleListCrawlRuns(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCrawlerHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	platforms := []string{"greenhouse", "lever", "ashby"}
-	health := make(map[string]any)
-
-	for _, platform := range platforms {
-		healthy, msg, err := s.redis.GetCrawlerHealth(ctx, platform)
-		if err != nil {
-			health[platform] = map[string]any{"healthy": false, "message": "check failed: " + err.Error()}
-		} else {
-			health[platform] = map[string]any{"healthy": healthy, "message": msg}
-		}
-	}
-
+	health := s.scheduler.GetCrawlerHealth(ctx)
 	writeJSON(w, http.StatusOK, health)
 }
 
