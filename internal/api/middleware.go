@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
+	jwtauth "github.com/AtharvGupta360/JobCrawl/internal/auth"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -70,4 +73,53 @@ func (s *Server) RateLimitMiddleware(requestsPerMinute int) func(http.Handler) h
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ─────────────────────────────────────────────
+// JWT Auth Middleware
+// ─────────────────────────────────────────────
+
+type ctxKey string
+
+const ctxKeyClaims ctxKey = "claims"
+
+// JWTMiddleware validates Bearer tokens and injects Claims into the request context.
+// Returns 401 if the token is missing or invalid.
+func (s *Server) JWTMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := extractBearerToken(r)
+		if token == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing or invalid Authorization header"})
+			return
+		}
+
+		claims, err := jwtauth.ValidateToken(s.jwtSecret, token)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), ctxKeyClaims, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// extractBearerToken reads the token from "Authorization: Bearer <token>" header.
+func extractBearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return ""
+	}
+	parts := strings.SplitN(h, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+// claimsFromCtx retrieves JWT Claims from the request context.
+// Returns nil, false if not present (should not happen on JWT-protected routes).
+func claimsFromCtx(ctx context.Context) (*jwtauth.Claims, bool) {
+	c, ok := ctx.Value(ctxKeyClaims).(*jwtauth.Claims)
+	return c, ok
 }

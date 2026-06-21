@@ -10,7 +10,9 @@ import (
 type User struct {
 	ID               uuid.UUID `json:"id" db:"id"`
 	Email            string    `json:"email" db:"email"`
+	PasswordHash     string    `json:"-" db:"password_hash"` // never serialised to JSON
 	Name             string    `json:"name,omitempty" db:"name"`
+	Role             string    `json:"role" db:"role"` // "user", "admin"
 	TargetRoles      []string  `json:"target_roles,omitempty" db:"target_roles"`
 	TargetSeniority  []string  `json:"target_seniority,omitempty" db:"target_seniority"`
 	TargetLocations  []string  `json:"target_locations,omitempty" db:"target_locations"`
@@ -23,22 +25,35 @@ type User struct {
 
 // Alert represents a user-defined job alert rule.
 type Alert struct {
-	ID            uuid.UUID         `json:"id" db:"id"`
-	UserID        uuid.UUID         `json:"user_id" db:"user_id"`
-	Name          string            `json:"name" db:"name"`
-	Filters       map[string]any    `json:"filters" db:"filters"` // {"skills": ["Go"], "seniority": ["junior"]}
-	IsActive      bool              `json:"is_active" db:"is_active"`
-	NotifyVia     string            `json:"notify_via" db:"notify_via"` // "websocket", "email"
-	LastTriggered *time.Time        `json:"last_triggered,omitempty" db:"last_triggered"`
-	CreatedAt     time.Time         `json:"created_at" db:"created_at"`
+	ID            uuid.UUID      `json:"id" db:"id"`
+	UserID        uuid.UUID      `json:"user_id" db:"user_id"`
+	Name          string         `json:"name" db:"name"`
+	Filters       map[string]any `json:"filters" db:"filters"` // {"skills": ["Go"], "seniority": ["junior"]}
+	IsActive      bool           `json:"is_active" db:"is_active"`
+	NotifyVia     string         `json:"notify_via" db:"notify_via"` // "websocket", "email"
+	LastTriggered *time.Time     `json:"last_triggered,omitempty" db:"last_triggered"`
+	CreatedAt     time.Time      `json:"created_at" db:"created_at"`
+}
+
+// Notification represents a single in-app notification delivered to a user.
+type Notification struct {
+	ID        uuid.UUID  `json:"id" db:"id"`
+	UserID    uuid.UUID  `json:"user_id" db:"user_id"`
+	AlertID   *uuid.UUID `json:"alert_id,omitempty" db:"alert_id"`
+	JobID     *uuid.UUID `json:"job_id,omitempty" db:"job_id"`
+	Title     string     `json:"title" db:"title"`
+	Company   string     `json:"company" db:"company"`
+	ApplyURL  string     `json:"apply_url,omitempty" db:"apply_url"`
+	IsRead    bool       `json:"is_read" db:"is_read"`
+	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 }
 
 // Skill represents an entry in the skills taxonomy.
 type Skill struct {
-	ID       uuid.UUID `json:"id" db:"id"`
-	Name     string    `json:"name" db:"name"`
-	Category string    `json:"category" db:"category"` // "language", "framework", "tool", "concept"
-	Aliases  []string  `json:"aliases,omitempty" db:"aliases"`
+	ID       uuid.UUID  `json:"id" db:"id"`
+	Name     string     `json:"name" db:"name"`
+	Category string     `json:"category" db:"category"` // "language", "framework", "tool", "concept"
+	Aliases  []string   `json:"aliases,omitempty" db:"aliases"`
 	ParentID *uuid.UUID `json:"parent_id,omitempty" db:"parent_id"`
 }
 
@@ -59,14 +74,14 @@ type CrawlRun struct {
 
 // TrendSnapshot represents a daily aggregate for a skill's demand.
 type TrendSnapshot struct {
-	ID             uuid.UUID      `json:"id" db:"id"`
-	SnapshotDate   time.Time      `json:"snapshot_date" db:"snapshot_date"`
-	SkillName      string         `json:"skill_name" db:"skill_name"`
-	JobCount       int            `json:"job_count" db:"job_count"`
-	AvgSalaryMin   *int           `json:"avg_salary_min,omitempty" db:"avg_salary_min"`
-	AvgSalaryMax   *int           `json:"avg_salary_max,omitempty" db:"avg_salary_max"`
-	TopCompanies   []CompanyCount `json:"top_companies,omitempty" db:"top_companies"`
-	SeniorityDist  map[string]int `json:"seniority_dist,omitempty" db:"seniority_dist"`
+	ID           uuid.UUID      `json:"id" db:"id"`
+	SnapshotDate time.Time      `json:"snapshot_date" db:"snapshot_date"`
+	SkillName    string         `json:"skill_name" db:"skill_name"`
+	JobCount     int            `json:"job_count" db:"job_count"`
+	AvgSalaryMin *int           `json:"avg_salary_min,omitempty" db:"avg_salary_min"`
+	AvgSalaryMax *int           `json:"avg_salary_max,omitempty" db:"avg_salary_max"`
+	TopCompanies []CompanyCount `json:"top_companies,omitempty" db:"top_companies"`
+	SeniorityDist map[string]int `json:"seniority_dist,omitempty" db:"seniority_dist"`
 }
 
 // CompanyCount is used in trend snapshots.

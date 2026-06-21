@@ -41,6 +41,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		checks["redis"] = "healthy"
 	}
 
+	// Elasticsearch (if configured)
+	if s.elastic != nil {
+		if err := s.elastic.HealthCheck(ctx); err != nil {
+			checks["elasticsearch"] = "unhealthy: " + err.Error()
+			health["status"] = "degraded"
+		} else {
+			checks["elasticsearch"] = "healthy"
+		}
+	}
+
 	health["checks"] = checks
 
 	status := http.StatusOK
@@ -277,4 +287,47 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+// ─────────────────────────────────────────────
+// Search Handler
+// ─────────────────────────────────────────────
+
+func (s *Server) handleSearchJobs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	sq := store.SearchQuery{
+		Query:          r.URL.Query().Get("q"),
+		SeniorityLevel: r.URL.Query().Get("seniority"),
+		LocationType:   r.URL.Query().Get("location_type"),
+		Company:        r.URL.Query().Get("company"),
+		Department:     r.URL.Query().Get("department"),
+		Limit:          limit,
+		Offset:         offset,
+	}
+
+	result, err := s.elastic.SearchJobs(ctx, sq)
+	if err != nil {
+		s.logger.Error("search failed", "error", err, "query", sq.Query)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results": result.Jobs,
+		"total":   result.Total,
+		"facets":  result.Facets,
+		"limit":   limit,
+		"offset":  offset,
+		"query":   sq.Query,
+	})
 }

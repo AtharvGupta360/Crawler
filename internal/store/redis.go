@@ -155,3 +155,26 @@ func (r *RedisStore) GetCrawlerHealth(ctx context.Context, atsName string) (bool
 
 // ErrCacheMiss is returned when a cache lookup finds no value.
 var ErrCacheMiss = fmt.Errorf("cache miss")
+
+// ─────────────────────────────────────────────
+// Raw JSON helpers (used by alert evaluator cache)
+// ─────────────────────────────────────────────
+
+// GetJSON returns the raw JSON bytes stored at key, or nil+nil on cache miss.
+func (r *RedisStore) GetJSON(ctx context.Context, key string) ([]byte, error) {
+	val, err := r.client.Get(ctx, key).Bytes()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	return val, err
+}
+
+// SetJSON stores raw JSON bytes with a TTL. Best-effort — errors are logged but not fatal.
+func (r *RedisStore) SetJSON(ctx context.Context, key string, data []byte, ttl time.Duration) error {
+	return r.client.Set(ctx, key, data, ttl).Err()
+}
+
+// DeleteCache removes a key from the cache (used to invalidate alert cache on writes).
+func (r *RedisStore) DeleteCache(ctx context.Context, key string) error {
+	return r.client.Del(ctx, key).Err()
+}

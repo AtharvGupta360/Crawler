@@ -9,7 +9,14 @@ import (
 
 	"github.com/AtharvGupta360/JobCrawl/internal/models"
 	"github.com/AtharvGupta360/JobCrawl/internal/store"
+	"github.com/google/uuid"
 )
+
+// EventPublisher is an interface for publishing crawl events to a message queue.
+// This decouples the scheduler from the Kafka package to avoid circular imports.
+type EventPublisher interface {
+	PublishRawListing(ctx context.Context, companyID uuid.UUID, companySlug string, crawlRunID uuid.UUID, listing RawJobListing) error
+}
 
 // Scheduler manages periodic crawl runs and on-demand triggers.
 type Scheduler struct {
@@ -18,6 +25,7 @@ type Scheduler struct {
 	redis       *store.RedisStore
 	rateLimiter *RateLimiter
 	breaker     *CircuitBreaker
+	publisher   EventPublisher // nil = synchronous fallback
 	logger      *slog.Logger
 
 	// Control
@@ -27,6 +35,8 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new crawl scheduler.
+// If publisher is nil, the scheduler falls back to synchronous processing
+// (direct Redis dedup + PostgreSQL upsert) for local development without Kafka.
 func NewScheduler(
 	pg *store.PostgresStore,
 	redis *store.RedisStore,
@@ -34,6 +44,7 @@ func NewScheduler(
 	breaker *CircuitBreaker,
 	crawlers []Crawler,
 	interval time.Duration,
+	publisher EventPublisher,
 	logger *slog.Logger,
 ) *Scheduler {
 	crawlerMap := make(map[string]Crawler)
@@ -41,12 +52,20 @@ func NewScheduler(
 		crawlerMap[c.Name()] = c
 	}
 
+	mode := "event-driven (Kafka)"
+	if publisher == nil {
+		mode = "synchronous (no Kafka)"
+	}
+
+	logger.Info("scheduler created", "mode", mode, "interval", interval)
+
 	return &Scheduler{
 		crawlers:    crawlerMap,
 		pg:          pg,
 		redis:       redis,
 		rateLimiter: rateLimiter,
 		breaker:     breaker,
+		publisher:   publisher,
 		interval:    interval,
 		stopCh:      make(chan struct{}),
 		logger:      logger.With("component", "scheduler"),
@@ -208,8 +227,61 @@ func (s *Scheduler) crawlCompany(ctx context.Context, c Crawler, company models.
 		return run, err
 	}
 
-	// Process each listing
+	// Process listings — either via Kafka events or synchronously
 	var jobsNew, jobsUpdated int
+	if s.publisher != nil {
+		// Event-driven: publish each listing to Kafka
+		jobsNew, jobsUpdated = s.processViaKafka(ctx, listings, company, run.ID)
+	} else {
+		// Synchronous fallback: direct Redis dedup + PostgreSQL upsert
+		jobsNew, jobsUpdated = s.processSynchronous(ctx, listings, company)
+	}
+
+	// Mark jobs not seen in this crawl as inactive
+	jobsRemoved, _ := s.pg.MarkJobsInactive(ctx, company.ID, crawlStart)
+
+	// Complete the crawl run
+	run.Status = "completed"
+	run.JobsFound = len(listings)
+	run.JobsNew = jobsNew
+	run.JobsUpdated = jobsUpdated
+	run.JobsRemoved = int(jobsRemoved)
+	s.pg.CompleteCrawlRun(ctx, run)
+
+	// Update Redis health
+	s.redis.SetCrawlerHealth(ctx, c.Name(), true, "ok")
+
+	return run, nil
+}
+
+// processViaKafka publishes each listing as a CrawlEvent to Kafka.
+// The Kafka processor consumer handles dedup and upsert.
+func (s *Scheduler) processViaKafka(ctx context.Context, listings []RawJobListing, company models.Company, crawlRunID uuid.UUID) (jobsNew, jobsUpdated int) {
+	published := 0
+	for _, listing := range listings {
+		if err := s.publisher.PublishRawListing(ctx, company.ID, company.Slug, crawlRunID, listing); err != nil {
+			s.logger.Error("failed to publish listing to Kafka",
+				"title", listing.Title,
+				"error", err,
+			)
+			continue
+		}
+		published++
+	}
+
+	s.logger.Info("published listings to Kafka",
+		"company", company.Name,
+		"published", published,
+		"total", len(listings),
+	)
+
+	// Note: actual new/updated counts come from the processor consumer.
+	// We report published count as "found" — the run record captures this.
+	return 0, 0
+}
+
+// processSynchronous is the original direct-processing path for when Kafka is unavailable.
+func (s *Scheduler) processSynchronous(ctx context.Context, listings []RawJobListing, company models.Company) (jobsNew, jobsUpdated int) {
 	for _, listing := range listings {
 		// Check dedup via Redis
 		contentHash := listing.ContentHash()
@@ -240,21 +312,7 @@ func (s *Scheduler) crawlCompany(ctx context.Context, c Crawler, company models.
 		}
 	}
 
-	// Mark jobs not seen in this crawl as inactive
-	jobsRemoved, _ := s.pg.MarkJobsInactive(ctx, company.ID, crawlStart)
-
-	// Complete the crawl run
-	run.Status = "completed"
-	run.JobsFound = len(listings)
-	run.JobsNew = jobsNew
-	run.JobsUpdated = jobsUpdated
-	run.JobsRemoved = int(jobsRemoved)
-	s.pg.CompleteCrawlRun(ctx, run)
-
-	// Update Redis health
-	s.redis.SetCrawlerHealth(ctx, c.Name(), true, "ok")
-
-	return run, nil
+	return jobsNew, jobsUpdated
 }
 
 func getDomainForATS(ats string) string {

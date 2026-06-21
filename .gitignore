@@ -40,6 +40,8 @@ build/
 ### Go ###
 bin/
 vendor/
+.gocache/
+.gomodcache/
 *.exe
 *.exe~
 *.dll
