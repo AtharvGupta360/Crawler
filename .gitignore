@@ -55,3 +55,7 @@ vendor/
 
 ### Data ###
 data/
+
+### Frontend ###
+web/node_modules/
+web/dist/

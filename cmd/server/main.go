@@ -168,6 +168,10 @@ func main() {
 		pg, redis, rateLimiter, circuitBreaker,
 		crawlers, 6*time.Hour, publisher, logger,
 	)
+	if len(cfg.KafkaBrokers) == 0 {
+		syncAdapter := kafka.NewSyncAdapter(pg, redis, enrichPipeline, elastic, wsHub, logger)
+		scheduler.SetSyncProcessor(syncAdapter)
+	}
 	scheduler.Start()
 	defer scheduler.Stop()
 

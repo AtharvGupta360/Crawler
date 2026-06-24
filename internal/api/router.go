@@ -125,7 +125,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/health", s.handleCrawlerHealth)
 		})
 
-		// ── Alerts + Notifications (JWT protected) ─────
+		// ── Alerts + Notifications + Match (JWT protected) ──
 		r.Group(func(r chi.Router) {
 			r.Use(s.JWTMiddleware)
 
@@ -140,6 +140,11 @@ func (s *Server) setupRoutes() {
 				r.Get("/", s.handleListNotifications)
 				r.Put("/read-all", s.handleMarkAllRead)
 				r.Put("/{notifID}/read", s.handleMarkRead)
+			})
+
+			r.Route("/match", func(r chi.Router) {
+				r.Post("/resume", s.handleMatchResume)
+				r.Get("/recommendations", s.handleRecommendations)
 			})
 		})
 
@@ -156,5 +161,14 @@ func (s *Server) setupRoutes() {
 			r.Get("/ws", s.handleWebSocket)
 			r.Get("/ws/alerts", s.handleWebSocket)
 		}
+
+		// ── Admin (JWT + admin role) ──────────────────
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(s.JWTMiddleware)
+			r.Use(s.AdminOnly)
+			r.Get("/stats", s.handleAdminStats)
+			r.Get("/crawl-summary", s.handleAdminCrawlSummary)
+			r.Get("/users", s.handleAdminUsers)
+		})
 	})
 }

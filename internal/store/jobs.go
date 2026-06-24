@@ -315,6 +315,35 @@ type JobFilter struct {
 	Offset         int
 }
 
+// UpdateJobEnrichment persists AI/rule-enriched fields back to the job row.
+// Used by the synchronous fallback pipeline after enrichment runs.
+func (s *PostgresStore) UpdateJobEnrichment(ctx context.Context, j *models.Job) error {
+	skillsReqJSON, _ := json.Marshal(j.SkillsRequired)
+	skillsPrefJSON, _ := json.Marshal(j.SkillsPreferred)
+
+	_, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET
+			normalized_title    = $2,
+			seniority_level     = $3,
+			location_type       = $4,
+			employment_type     = $5,
+			salary_min          = $6,
+			salary_max          = $7,
+			skills_required     = $8,
+			skills_preferred    = $9,
+			experience_years_min = $10,
+			experience_years_max = $11,
+			education_level     = $12,
+			ai_summary          = $13
+		WHERE id = $1
+	`, j.ID, j.NormalizedTitle, j.SeniorityLevel, j.LocationType,
+		j.EmploymentType, j.SalaryMin, j.SalaryMax,
+		skillsReqJSON, skillsPrefJSON, j.ExperienceYearsMin, j.ExperienceYearsMax,
+		j.EducationLevel, j.AISummary,
+	)
+	return err
+}
+
 // ─────────────────────────────────────────────
 // Crawl Run operations
 // ─────────────────────────────────────────────

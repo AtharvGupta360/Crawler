@@ -91,10 +91,48 @@ Makefile                   — dev, build, infra, kafka-topics targets
 | 1 ✅ | Go foundation, PostgreSQL, Redis, config, models, API, migrations |
 | 2 ✅ | Greenhouse/Lever/Ashby crawlers, rate limiter, circuit breaker, scheduler |
 | 3 ✅ | Kafka event pipeline, Elasticsearch search, scheduler refactor |
+| 4a ✅ | AI enrichment (rule-based + Gemini) — skills, seniority, salary, summary |
+| 4b ✅ | User auth (JWT), alert CRUD, notifications inbox, WebSocket hub, Kafka alert evaluator |
+| 4c ✅ | Trend analytics (daily snapshots of skill demand, company hiring, salaries) |
+| 4d ✅ | Resume matching (deterministic skill/preference/freshness scoring) |
+| 5 ✅ | React frontend dashboard (Vite, 9 pages, dark theme, Recharts) |
 
-## What's Next (Phase 4 candidates)
+## Frontend Structure
 
-- AI enrichment (skills extraction, seniority detection, salary parsing via OpenAI/Gemini)
-- User authentication (JWT)
-- Alert system (Kafka consumer matching jobs to user alert rules → WebSocket/email notifications)
-- Trend analytics (daily snapshots of skill demand, stored in trend_snapshots table)
+```
+web/
+├── src/
+│   ├── api/client.js             — Fetch wrapper with JWT auth for all endpoints
+│   ├── hooks/
+│   │   ├── useAuth.jsx           — Auth context + JWT storage
+│   │   ├── useApi.js             — Generic data-fetching hook
+│   │   ├── useWebSocket.js       — Real-time notifications via WebSocket
+│   │   └── useToast.jsx          — Toast notification system
+│   ├── components/
+│   │   ├── Layout.jsx            — Sidebar + top bar + notification bell
+│   │   ├── JobCard.jsx           — Job listing card
+│   │   ├── Pagination.jsx        — Page controls
+│   │   ├── FilterBar.jsx         — Seniority/location/company filters
+│   │   └── TagsInput.jsx         — Multi-value tag input
+│   └── pages/
+│       ├── Dashboard.jsx         — Stats, trend chart, quick actions
+│       ├── Jobs.jsx              — Paginated job listings with filters
+│       ├── JobDetail.jsx         — Full job view with AI summary
+│       ├── Search.jsx            — ES-backed full-text search with facets
+│       ├── Trends.jsx            — Skill/company/salary charts (Recharts)
+│       ├── Match.jsx             — Resume matching with score breakdown
+│       ├── Alerts.jsx            — Alert CRUD + notification inbox
+│       ├── Profile.jsx           — User preferences editor
+│       ├── Login.jsx             — Login form
+│       └── Register.jsx          — Registration form
+├── vite.config.js                — Dev proxy to Go backend (:8080)
+└── package.json
+```
+
+## What's Next (Phase 6 candidates)
+
+- Polish & production-readiness (Swagger/OpenAPI docs, integration tests, demo data seeder)
+- Static file serving from Go binary (embed `web/dist/`)
+- Code-splitting for smaller bundle size
+- README with architecture diagram
+

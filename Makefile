@@ -1,4 +1,4 @@
-.PHONY: help dev build run test clean infra infra-down migrate
+.PHONY: help dev build run test clean infra infra-down migrate web-install web-dev web-build
 
 # Default target
 help: ## Show this help
@@ -63,3 +63,17 @@ kafka-topics: ## Create Kafka topics
 
 kafka-list: ## List Kafka topics
 	docker exec jobcrawl-kafka /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+# ─────────────────────────────────────────────
+# Frontend (React Dashboard)
+# ─────────────────────────────────────────────
+
+web-install: ## Install frontend dependencies
+	cd web && npm install
+
+web-dev: ## Run frontend dev server (port 5173, proxies to :8080)
+	cd web && npm run dev
+
+web-build: ## Build frontend for production (output: web/dist/)
+	cd web && npm run build
+

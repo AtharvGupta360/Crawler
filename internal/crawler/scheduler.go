@@ -20,13 +20,14 @@ type EventPublisher interface {
 
 // Scheduler manages periodic crawl runs and on-demand triggers.
 type Scheduler struct {
-	crawlers    map[string]Crawler // ATS name → crawler
-	pg          *store.PostgresStore
-	redis       *store.RedisStore
-	rateLimiter *RateLimiter
-	breaker     *CircuitBreaker
-	publisher   EventPublisher // nil = synchronous fallback
-	logger      *slog.Logger
+	crawlers      map[string]Crawler // ATS name → crawler
+	pg            *store.PostgresStore
+	redis         *store.RedisStore
+	rateLimiter   *RateLimiter
+	breaker       *CircuitBreaker
+	publisher     EventPublisher // nil = synchronous fallback
+	syncProcessor SyncProcessor  // optional: enriches, indexes, evaluates alerts inline
+	logger        *slog.Logger
 
 	// Control
 	interval time.Duration
@@ -101,6 +102,13 @@ func (s *Scheduler) Start() {
 func (s *Scheduler) Stop() {
 	close(s.stopCh)
 	s.wg.Wait()
+}
+
+// SetSyncProcessor sets the optional synchronous processor that runs
+// enrichment, ES indexing, and alert evaluation inline (no Kafka).
+func (s *Scheduler) SetSyncProcessor(sp SyncProcessor) {
+	s.syncProcessor = sp
+	s.logger.Info("sync processor attached to scheduler")
 }
 
 // TriggerCrawl manually triggers a crawl for a specific company.
@@ -280,7 +288,9 @@ func (s *Scheduler) processViaKafka(ctx context.Context, listings []RawJobListin
 	return 0, 0
 }
 
-// processSynchronous is the original direct-processing path for when Kafka is unavailable.
+// processSynchronous is the direct-processing path for when Kafka is unavailable.
+// When a SyncProcessor is attached, it also runs enrichment, ES indexing,
+// alert evaluation, and WebSocket notifications inline.
 func (s *Scheduler) processSynchronous(ctx context.Context, listings []RawJobListing, company models.Company) (jobsNew, jobsUpdated int) {
 	for _, listing := range listings {
 		// Check dedup via Redis
@@ -304,6 +314,19 @@ func (s *Scheduler) processSynchronous(ctx context.Context, listings []RawJobLis
 
 		// Mark content as seen in Redis
 		s.redis.MarkContentSeen(ctx, contentHash)
+
+		// Attach company for downstream alert matching
+		job.Company = &company
+
+		// Run enrichment + alerts + ES indexing inline (if configured)
+		if s.syncProcessor != nil {
+			if err := s.syncProcessor.ProcessSync(ctx, &job, isNew); err != nil {
+				s.logger.Warn("sync processor error",
+					"title", job.Title,
+					"error", err,
+				)
+			}
+		}
 
 		if isNew {
 			jobsNew++

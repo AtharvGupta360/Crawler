@@ -104,6 +104,19 @@ func (s *Server) JWTMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// AdminOnly middleware ensures the authenticated user has the 'admin' role.
+// Must be used after JWTMiddleware.
+func (s *Server) AdminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := claimsFromCtx(r.Context())
+		if !ok || claims.Role != "admin" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin access required"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // extractBearerToken reads the token from "Authorization: Bearer <token>" header.
 func extractBearerToken(r *http.Request) string {
 	h := r.Header.Get("Authorization")
