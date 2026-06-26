@@ -46,7 +46,7 @@ func Load() (*Config, error) {
 		DatabaseURL:             getEnv("DATABASE_URL", "postgres://jobcrawl:jobcrawl_dev_pass@localhost:5432/jobcrawl?sslmode=disable"),
 		RedisURL:                getEnv("REDIS_URL", "redis://localhost:6379"),
 		ElasticsearchURL:        getEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
-		KafkaBrokers:            strings.Split(getEnv("KAFKA_BROKERS", "localhost:9094"), ","),
+		KafkaBrokers:            strings.Split(getEnv("KAFKA_BROKERS", ""), ","),
 		OpenAIAPIKey:            getEnv("OPENAI_API_KEY", ""),
 		GeminiAPIKey:            getEnv("GEMINI_API_KEY", ""),
 		CrawlRateLimitPerSecond: getEnvFloat("CRAWL_RATE_LIMIT_PER_SECOND", 1.0),

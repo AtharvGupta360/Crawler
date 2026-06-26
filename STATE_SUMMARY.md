@@ -1,13 +1,13 @@
-# State Summary - 2026-06-25
+# State Summary — 2026-06-25
 
 ## Last Completed
 
-**Phase 5: React Frontend Dashboard**
+**Phase 6: Production Polish & Demo-Readiness**
 
 All checks passed:
-- `go build ./...` — Go backend builds clean
-- `npm run build` — Vite production build succeeds (0 errors)
-- Dev server starts on `localhost:5173` with proxy to `:8080`
+- `go build ./cmd/server/` — Go backend builds clean with embedded frontend
+- `go build ./cmd/seed/` — Demo data seeder builds clean
+- `npm run build` — Vite production build succeeds (17 chunks, code-split)
 
 Verification used workspace-local Go caches:
 ```
@@ -17,82 +17,81 @@ $env:GOMODCACHE = (Join-Path (Get-Location) '.gomodcache')
 
 ## What Was Built
 
-React 18 + Vite dashboard for the JobCrawl platform with 9 pages:
+### 1. Static File Serving (Single Binary Deploy)
+- `web/embed.go` — `//go:embed all:dist` embeds the built frontend
+- `internal/api/static.go` — Serves embedded files with SPA fallback for client-side routing
+  - Hashed assets (`/assets/*`) get immutable cache headers
+  - `index.html` is never cached for instant update propagation
+  - Non-API 404s serve `index.html` for React Router
+- `cmd/server/main.go` — Registers `web.DistFS` via `fs.Sub()` + `api.SetFrontendFS()`
+- Makefile `prod` target: `web-build` → `go build` (single command)
 
-| Page | Route | Features |
-|------|-------|----------|
-| Login | `/login` | Email/password form, JWT auth |
-| Register | `/register` | Account creation with validation |
-| Dashboard | `/` | Stat cards, trend area chart, quick actions, recent jobs |
-| Jobs | `/jobs` | Paginated listings, seniority/location/company filters |
-| Job Detail | `/jobs/:id` | Full description, AI summary, skills breakdown, company sidebar |
-| Search | `/search` | ES-backed full-text search with faceted sidebar |
-| Trends | `/trends` | Skill demand charts, company hiring bars, salary ranges (Recharts) |
-| Match | `/match` | Resume paste + skills input → scored results with breakdown |
-| Alerts | `/alerts` | Alert CRUD, notification inbox, WebSocket real-time notifications |
-| Profile | `/profile` | Career preferences editor (roles, seniority, skills, resume) |
+### 2. React Code-Splitting
+- All 10 page imports converted to `React.lazy()` with `<Suspense>` boundary
+- Premium loading spinner with accent-colored animation
+- **Bundle results**: Main chunk 244KB (was ~680KB), 17 total chunks
+- Each page loads independently: 1–7KB per route, Recharts (352KB) only on Trends page
 
-## Technical Details
+### 3. Demo Data Seeder (`cmd/seed/main.go`)
+- Seeds ~150 realistic jobs across 9 companies (15 job templates × seniority distribution)
+- 32 skills in taxonomy with categories and aliases
+- 14 days × 16 skills = 224 trend snapshots
+- Demo user: `demo@jobcrawl.dev` / `demo1234` with filled profile
+- Fully idempotent (ON CONFLICT upserts)
+- Run via `make seed`
 
-- **Design system**: Premium dark theme (Linear/Vercel-inspired) with glassmorphism, Inter typography, micro-animations, skeleton loaders
-- **API client**: Fetch wrapper with JWT auth, auto-redirect on 401, methods for every backend endpoint
-- **Hooks**: useAuth (JWT context), useApi (data fetching), useWebSocket (real-time alerts), useToast (notification toasts)
-- **Vite proxy**: Dev server on `:5173` proxies `/api/*` and `/health` to Go backend on `:8080`
-- **Charts**: Recharts for skill demand area charts, company hiring bar charts, salary range comparisons
+### 4. README
+- Full project README with Mermaid architecture diagram
+- Features list, tech stack table, quick start guide
+- API endpoint table (24 endpoints)
+- Project structure tree, development instructions
+- MIT license
 
 ## Files Changed This Session
 
 ### New
-- `web/` — Complete React frontend project
-- `web/src/api/client.js` — API client with JWT auth
-- `web/src/hooks/useAuth.jsx` — Auth context
-- `web/src/hooks/useApi.js` — Data fetching hook
-- `web/src/hooks/useWebSocket.js` — WebSocket hook
-- `web/src/hooks/useToast.jsx` — Toast notifications
-- `web/src/components/Layout.jsx` — Sidebar + top bar
-- `web/src/components/JobCard.jsx` — Job listing card
-- `web/src/components/Pagination.jsx` — Page controls
-- `web/src/components/FilterBar.jsx` — Filter dropdowns
-- `web/src/components/TagsInput.jsx` — Multi-value tag input
-- `web/src/pages/Login.jsx` — Login page
-- `web/src/pages/Register.jsx` — Registration page
-- `web/src/pages/Dashboard.jsx` — Dashboard with stats + chart
-- `web/src/pages/Jobs.jsx` — Job listings with filters
-- `web/src/pages/JobDetail.jsx` — Full job detail view
-- `web/src/pages/Search.jsx` — ES-backed search with facets
-- `web/src/pages/Trends.jsx` — Trend analytics charts
-- `web/src/pages/Match.jsx` — Resume matching
-- `web/src/pages/Alerts.jsx` — Alerts + notifications
-- `web/src/pages/Profile.jsx` — User profile editor
-- `web/src/App.jsx` — Router with auth-protected routes
-- `web/src/index.css` — Full design system
+- `web/embed.go` — Embedded frontend FS
+- `internal/api/static.go` — Static file serving with SPA fallback
+- `cmd/seed/main.go` — Demo data seeder
+- `README.md` — Project documentation with architecture diagram
 
 ### Modified
-- `.gitignore` — Added `web/node_modules/` and `web/dist/`
-- `Makefile` — Added `web-install`, `web-dev`, `web-build` targets
-- `PROJECT_CONTEXT.md` — Updated completed phases and added frontend structure
-- `STATE_SUMMARY.md` — Refreshed the handoff state
+- `cmd/server/main.go` — Import `web.DistFS`, register with API server
+- `internal/api/router.go` — Call `setupStaticRoutes()` at end of route setup
+- `web/src/App.jsx` — Lazy imports + Suspense for code-splitting
+- `Makefile` — Added `prod`, `prod-run`, `seed` targets
+- `PROJECT_CONTEXT.md` — Updated completed phases, added Phase 6
+- `STATE_SUMMARY.md` — Refreshed handoff state
 
 ## How to Run
 
 ```bash
-# Terminal 1: Start Go backend (requires docker compose up -d for infra)
-make dev
+# Full setup (first time)
+make infra          # Start Docker infrastructure
+make kafka-topics   # Create Kafka topics
+make seed           # Populate demo data
 
-# Terminal 2: Start React frontend
-make web-dev
+# Development (two terminals)
+make dev            # Terminal 1: Go backend on :8080
+make web-dev        # Terminal 2: Vite dev server on :5173
 
-# Open http://localhost:5173 in browser
+# Production (single binary)
+make prod-run       # Builds frontend + Go, serves on :8080
+
+# Demo login
+# Email: demo@jobcrawl.dev
+# Password: demo1234
 ```
 
 ## Ready for Next Session
 
 Best next phases:
-- **Production static serving**: Embed `web/dist/` in the Go binary so it serves the frontend directly
-- **Polish**: Swagger/OpenAPI docs, integration tests, demo data seeder, README with architecture diagram
-- **Code-splitting**: Break the 680KB bundle into lazy-loaded route chunks
+- **Swagger/OpenAPI docs**: Auto-generate API documentation
+- **Dockerfile**: Containerized production deployment
+- **Integration tests**: testcontainers for PG/Redis/ES
+- **CI/CD**: GitHub Actions pipeline
 
 ## No Known Build Blockers
 
-System still requires `docker compose up -d` plus `make kafka-topics` for the full Kafka-backed flow.
-Frontend works standalone against the Go backend API.
+System requires `docker compose up -d` plus `make kafka-topics` for the full Kafka-backed flow.
+Frontend and backend build and embed cleanly into a single binary.

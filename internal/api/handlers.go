@@ -279,6 +279,10 @@ func (s *Server) handleCrawlerHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, health)
 }
 
+func (s *Server) handleCrawlStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.scheduler.GetStatus())
+}
+
 // ─────────────────────────────────────────────
 // Response helpers
 // ─────────────────────────────────────────────

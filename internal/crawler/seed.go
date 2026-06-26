@@ -63,25 +63,52 @@ var DefaultCompanies = []SeedCompany{
 		Industry:    "Crypto",
 	},
 	{
-		Name:        "Notion",
-		Slug:        "notion",
-		Website:     "https://notion.so",
+		Name:        "Discord",
+		Slug:        "discord",
+		Website:     "https://discord.com",
 		ATSPlatform: models.ATSGreenhouse,
-		CareersURL:  "https://notion.so/careers",
-		Industry:    "Productivity",
+		CareersURL:  "https://discord.com/careers",
+		Industry:    "Social / Communication",
+	},
+	{
+		Name:        "Databricks",
+		Slug:        "databricks",
+		Website:     "https://databricks.com",
+		ATSPlatform: models.ATSGreenhouse,
+		CareersURL:  "https://databricks.com/company/careers",
+		Industry:    "Data & AI",
+	},
+	{
+		Name:        "HubSpot",
+		Slug:        "hubspotjobs",
+		Website:     "https://hubspot.com",
+		ATSPlatform: models.ATSGreenhouse,
+		CareersURL:  "https://hubspot.com/careers",
+		Industry:    "CRM / Marketing",
 	},
 
 	// ── Lever companies ──
+	// (None currently — Netlify moved to Greenhouse, see above)
+
+	// ── Additional Greenhouse companies ──
 	{
-		Name:        "Netflix",
-		Slug:        "netflix",
-		Website:     "https://netflix.com",
-		ATSPlatform: models.ATSLever,
-		CareersURL:  "https://jobs.netflix.com",
-		Industry:    "Streaming",
+		Name:        "Netlify",
+		Slug:        "netlify",
+		Website:     "https://netlify.com",
+		ATSPlatform: models.ATSGreenhouse,
+		CareersURL:  "https://netlify.com/careers",
+		Industry:    "Cloud Infrastructure",
 	},
 
 	// ── Ashby companies ──
+	{
+		Name:        "Notion",
+		Slug:        "notion",
+		Website:     "https://notion.so",
+		ATSPlatform: models.ATSAshby,
+		CareersURL:  "https://notion.so/careers",
+		Industry:    "Productivity",
+	},
 	{
 		Name:        "Ramp",
 		Slug:        "ramp",
@@ -97,6 +124,22 @@ var DefaultCompanies = []SeedCompany{
 		ATSPlatform: models.ATSAshby,
 		CareersURL:  "https://vercel.com/careers",
 		Industry:    "Cloud Infrastructure",
+	},
+	{
+		Name:        "Linear",
+		Slug:        "linear",
+		Website:     "https://linear.app",
+		ATSPlatform: models.ATSAshby,
+		CareersURL:  "https://linear.app/careers",
+		Industry:    "Productivity",
+	},
+	{
+		Name:        "Watershed",
+		Slug:        "watershed",
+		Website:     "https://watershed.com",
+		ATSPlatform: models.ATSAshby,
+		CareersURL:  "https://watershed.com/careers",
+		Industry:    "Climate Tech",
 	},
 }
 

@@ -83,6 +83,7 @@ export const crawl = {
   triggerCompany: (slug) => request('POST', `/crawl/trigger/${slug}`),
   runs: (params) => request('GET', '/crawl/runs', { params }),
   health: () => request('GET', '/crawl/health'),
+  status: () => request('GET', '/crawl/status'),
 };
 
 // ── Alerts ──

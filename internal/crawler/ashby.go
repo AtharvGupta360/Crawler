@@ -103,39 +103,35 @@ func (a *AshbyCrawler) CrawlCompany(ctx context.Context, company models.Company)
 
 	a.logger.Info("found jobs", "company", company.Name, "count", len(board.Jobs))
 
-	// Fetch individual job details for full descriptions
+	// Fetch individual job details for full descriptions (only if not already in listing)
 	var listings []RawJobListing
 	for _, job := range board.Jobs {
-		if err := a.rateLimiter.Wait(ctx, domain); err != nil {
-			return listings, err
-		}
+		// Use inline description from the board listing if available (Ashby v2 API)
+		descHTML := job.DescriptionHTML
 
-		detail, err := a.fetchJobDetail(ctx, job.ID)
-		if err != nil {
-			a.logger.Warn("failed to fetch ashby job detail",
-				"job_id", job.ID,
-				"title", job.Title,
-				"error", err,
-			)
-			// Fall back to basic info
-			listings = append(listings, RawJobListing{
-				ExternalID:      job.ID,
-				Title:           job.Title,
-				DescriptionHTML: "",
-				Location:        job.Location,
-				Department:      job.Department,
-				Team:            job.Team,
-				ApplyURL:        fmt.Sprintf("https://jobs.ashbyhq.com/%s/%s", company.Slug, job.ID),
-				SourceURL:       url,
-				EmploymentType:  normalizeAshbyEmploymentType(job.EmploymentType),
-			})
-			continue
+		// Only fetch details if the listing didn't include description
+		if descHTML == "" {
+			if err := a.rateLimiter.Wait(ctx, domain); err != nil {
+				return listings, err
+			}
+
+			detail, err := a.fetchJobDetail(ctx, job.ID)
+			if err != nil {
+				a.logger.Warn("failed to fetch ashby job detail",
+					"job_id", job.ID,
+					"title", job.Title,
+					"error", err,
+				)
+				// Fall back to basic info (no description)
+			} else {
+				descHTML = detail.DescriptionHTML
+			}
 		}
 
 		listings = append(listings, RawJobListing{
 			ExternalID:      job.ID,
 			Title:           job.Title,
-			DescriptionHTML: detail.DescriptionHTML,
+			DescriptionHTML: descHTML,
 			Location:        job.Location,
 			Department:      job.Department,
 			Team:            job.Team,
@@ -187,13 +183,14 @@ type ashbyBoardResponse struct {
 }
 
 type ashbyJob struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	Location       string `json:"location"`
-	Department     string `json:"department"`
-	Team           string `json:"team"`
-	EmploymentType string `json:"employmentType"`
-	IsListed       bool   `json:"isListed"`
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	DescriptionHTML string `json:"descriptionHtml"` // Available inline in v2 API responses
+	Location        string `json:"location"`
+	Department      string `json:"department"`
+	Team            string `json:"team"`
+	EmploymentType  string `json:"employmentType"`
+	IsListed        bool   `json:"isListed"`
 }
 
 type ashbyJobDetailResponse struct {

@@ -294,6 +294,16 @@ func (s *PostgresStore) ListJobs(ctx context.Context, filter JobFilter) ([]model
 	return jobs, total, rows.Err()
 }
 
+// TouchJobLastSeen refreshes last_seen_at for a job whose content hasn't changed,
+// ensuring MarkJobsInactive won't deactivate it.
+func (s *PostgresStore) TouchJobLastSeen(ctx context.Context, companyID uuid.UUID, externalID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET last_seen_at = NOW(), is_active = TRUE
+		WHERE company_id = $1 AND external_id = $2
+	`, companyID, externalID)
+	return err
+}
+
 // MarkJobsInactive marks jobs that were not seen in the latest crawl as inactive.
 func (s *PostgresStore) MarkJobsInactive(ctx context.Context, companyID uuid.UUID, seenBefore time.Time) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `
@@ -420,9 +430,12 @@ func (s *PostgresStore) GetJobStats(ctx context.Context) (*JobStats, error) {
 			COUNT(*) as total_jobs,
 			COUNT(DISTINCT company_id) as companies,
 			MIN(first_seen_at) as earliest_job,
-			MAX(first_seen_at) as latest_job
+			MAX(first_seen_at) as latest_job,
+			COUNT(*) FILTER (WHERE is_active = TRUE AND first_seen_at >= NOW() - INTERVAL '7 days') as new_this_week,
+			AVG(salary_max) FILTER (WHERE is_active = TRUE AND salary_max IS NOT NULL) as avg_salary_max
 		FROM jobs
-	`).Scan(&stats.ActiveJobs, &stats.TotalJobs, &stats.Companies, &stats.EarliestJob, &stats.LatestJob)
+	`).Scan(&stats.ActiveJobs, &stats.TotalJobs, &stats.Companies, &stats.EarliestJob, &stats.LatestJob,
+		&stats.NewThisWeek, &stats.AvgSalaryMax)
 
 	if err != nil {
 		return nil, err
@@ -454,11 +467,13 @@ func (s *PostgresStore) GetJobStats(ctx context.Context) (*JobStats, error) {
 
 // JobStats holds aggregate statistics.
 type JobStats struct {
-	ActiveJobs  int            `json:"active_jobs"`
-	TotalJobs   int            `json:"total_jobs"`
-	Companies   int            `json:"companies"`
-	EarliestJob *time.Time     `json:"earliest_job"`
-	LatestJob   *time.Time     `json:"latest_job"`
-	BySeniority map[string]int `json:"by_seniority"`
+	ActiveJobs   int            `json:"active_jobs"`
+	TotalJobs    int            `json:"total_jobs"`
+	Companies    int            `json:"companies"`
+	EarliestJob  *time.Time     `json:"earliest_job"`
+	LatestJob    *time.Time     `json:"latest_job"`
+	NewThisWeek  int            `json:"new_this_week"`
+	AvgSalaryMax *float64       `json:"avg_salary_max,omitempty"`
+	BySeniority  map[string]int `json:"by_seniority"`
 }
 

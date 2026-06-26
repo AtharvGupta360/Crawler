@@ -123,6 +123,7 @@ func (s *Server) setupRoutes() {
 			r.Post("/trigger/{companySlug}", s.handleTriggerCrawlCompany)
 			r.Get("/runs", s.handleListCrawlRuns)
 			r.Get("/health", s.handleCrawlerHealth)
+			r.Get("/status", s.handleCrawlStatus)
 		})
 
 		// ── Alerts + Notifications + Match (JWT protected) ──
@@ -171,4 +172,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/users", s.handleAdminUsers)
 		})
 	})
+
+	// ── Embedded Frontend (must be LAST — catch-all) ────
+	s.setupStaticRoutes()
 }

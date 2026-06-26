@@ -101,6 +101,8 @@ func (g *GreenhouseCrawler) CrawlCompany(ctx context.Context, company models.Com
 			continue // skip this job, don't fail the entire crawl
 		}
 
+		g.logger.Debug("fetched job detail", "title", detail.Title)
+
 		listing := RawJobListing{
 			ExternalID:      fmt.Sprintf("%d", summary.ID),
 			Title:           detail.Title,

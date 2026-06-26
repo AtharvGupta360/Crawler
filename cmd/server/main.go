@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/AtharvGupta360/JobCrawl/internal/kafka"
 	"github.com/AtharvGupta360/JobCrawl/internal/store"
 	"github.com/AtharvGupta360/JobCrawl/internal/ws"
+	"github.com/AtharvGupta360/JobCrawl/web"
 	"github.com/joho/godotenv"
 )
 
@@ -179,6 +181,14 @@ func main() {
 	trendScheduler := analytics.NewScheduler(pg, 24*time.Hour, 100, logger)
 	trendScheduler.Start(ctx)
 	defer trendScheduler.Stop()
+
+	// ── Embedded Frontend ──
+	// Register the embedded web/dist FS with the API server.
+	// If the dist/ directory is empty (dev build without web-build), the
+	// server falls back gracefully and static serving is disabled.
+	if distFS, err := fs.Sub(web.DistFS, "dist"); err == nil {
+		api.SetFrontendFS(distFS)
+	}
 
 	// ── API Server ──
 	serverCfg := api.ServerConfig{

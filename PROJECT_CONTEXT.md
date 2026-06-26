@@ -22,7 +22,9 @@ A Go backend that crawls job postings from ATS platforms (Greenhouse, Lever, Ash
 ## Directory Structure
 
 ```
-cmd/server/main.go          — Entrypoint, wires everything
+cmd/
+  server/main.go             — Entrypoint, wires everything
+  seed/main.go               — Demo data seeder (150 jobs, skills, trends, demo user)
 internal/
   api/
     router.go               — Chi router, Server struct, ServerConfig
@@ -96,6 +98,7 @@ Makefile                   — dev, build, infra, kafka-topics targets
 | 4c ✅ | Trend analytics (daily snapshots of skill demand, company hiring, salaries) |
 | 4d ✅ | Resume matching (deterministic skill/preference/freshness scoring) |
 | 5 ✅ | React frontend dashboard (Vite, 9 pages, dark theme, Recharts) |
+| 6 ✅ | Production polish: static serving (embedded frontend), code-splitting, demo seeder, README |
 
 ## Frontend Structure
 
@@ -125,14 +128,15 @@ web/
 │       ├── Profile.jsx           — User preferences editor
 │       ├── Login.jsx             — Login form
 │       └── Register.jsx          — Registration form
+├── embed.go                      — //go:embed for dist/ (production serving)
 ├── vite.config.js                — Dev proxy to Go backend (:8080)
 └── package.json
 ```
 
-## What's Next (Phase 6 candidates)
+## What's Next (Phase 7 candidates)
 
-- Polish & production-readiness (Swagger/OpenAPI docs, integration tests, demo data seeder)
-- Static file serving from Go binary (embed `web/dist/`)
-- Code-splitting for smaller bundle size
-- README with architecture diagram
+- Swagger/OpenAPI auto-generated docs
+- Integration tests with testcontainers
+- Dockerfile for containerized deployment
+- CI/CD pipeline (GitHub Actions)
 

@@ -33,6 +33,10 @@ type Scheduler struct {
 	interval time.Duration
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
+
+	// Live crawl status (protected by statusMu)
+	statusMu      sync.RWMutex
+	currentStatus CrawlStatus
 }
 
 // NewScheduler creates a new crawl scheduler.
@@ -126,6 +130,27 @@ func (s *Scheduler) TriggerCrawlAll(ctx context.Context) {
 	s.runAllCrawls()
 }
 
+// GetStatus returns the current crawl status (safe for concurrent reads).
+func (s *Scheduler) GetStatus() CrawlStatus {
+	s.statusMu.RLock()
+	defer s.statusMu.RUnlock()
+
+	status := CrawlStatus{
+		IsRunning:        s.currentStatus.IsRunning,
+		StartedAt:        s.currentStatus.StartedAt,
+		CompletedAt:      s.currentStatus.CompletedAt,
+		TotalCompanies:   s.currentStatus.TotalCompanies,
+		CompletedCount:   s.currentStatus.CompletedCount,
+		TotalJobsNew:     s.currentStatus.TotalJobsNew,
+		TotalJobsUpdated: s.currentStatus.TotalJobsUpdated,
+		TotalJobsFound:   s.currentStatus.TotalJobsFound,
+	}
+	companies := make([]CompanyStatus, len(s.currentStatus.Companies))
+	copy(companies, s.currentStatus.Companies)
+	status.Companies = companies
+	return status
+}
+
 // GetCrawlerHealth returns health status for all crawler platforms.
 func (s *Scheduler) GetCrawlerHealth(ctx context.Context) map[string]CrawlerHealthStatus {
 	statuses := make(map[string]CrawlerHealthStatus)
@@ -161,37 +186,101 @@ func (s *Scheduler) GetCrawlerHealth(ctx context.Context) map[string]CrawlerHeal
 func (s *Scheduler) runAllCrawls() {
 	ctx := context.Background()
 
+	// Guard: skip if a crawl is already in progress
+	s.statusMu.Lock()
+	if s.currentStatus.IsRunning {
+		s.statusMu.Unlock()
+		s.logger.Info("crawl already running, skipping")
+		return
+	}
+
 	companies, err := s.pg.ListCompanies(ctx)
 	if err != nil {
+		s.statusMu.Unlock()
 		s.logger.Error("failed to list companies for crawl", "error", err)
 		return
 	}
 
 	if len(companies) == 0 {
+		s.statusMu.Unlock()
 		s.logger.Info("no companies configured, skipping crawl")
 		return
 	}
 
+	// Initialise live status
+	now := time.Now()
+	companyStatuses := make([]CompanyStatus, len(companies))
+	for i, c := range companies {
+		companyStatuses[i] = CompanyStatus{
+			Name:        c.Name,
+			Slug:        c.Slug,
+			ATSPlatform: c.ATSPlatform,
+			Status:      "pending",
+		}
+	}
+	s.currentStatus = CrawlStatus{
+		IsRunning:      true,
+		StartedAt:      &now,
+		TotalCompanies: len(companies),
+		Companies:      companyStatuses,
+	}
+	s.statusMu.Unlock()
+
 	s.logger.Info("starting crawl cycle", "companies", len(companies))
 
-	for _, company := range companies {
+	totalNew, totalUpdated, totalFound := 0, 0, 0
+
+	for i, company := range companies {
 		crawler, ok := s.crawlers[company.ATSPlatform]
 		if !ok {
 			s.logger.Warn("no crawler for ATS platform",
 				"company", company.Name,
 				"ats", company.ATSPlatform,
 			)
+			s.setCompanyStatus(i, CompanyStatus{
+				Name: company.Name, Slug: company.Slug, ATSPlatform: company.ATSPlatform,
+				Status: "failed", Error: "unsupported ATS platform",
+			})
+			s.bumpCompleted()
 			continue
 		}
 
+		runStart := time.Now()
+		s.setCompanyStatus(i, CompanyStatus{
+			Name: company.Name, Slug: company.Slug, ATSPlatform: company.ATSPlatform,
+			Status: "running", StartedAt: &runStart,
+		})
+
 		run, err := s.crawlCompany(ctx, crawler, company)
+		done := time.Now()
+
 		if err != nil {
-			s.logger.Error("crawl failed",
-				"company", company.Name,
-				"error", err,
-			)
+			s.logger.Error("crawl failed", "company", company.Name, "error", err)
+			s.setCompanyStatus(i, CompanyStatus{
+				Name: company.Name, Slug: company.Slug, ATSPlatform: company.ATSPlatform,
+				Status: "failed", Error: err.Error(),
+				StartedAt: &runStart, CompletedAt: &done,
+			})
+			s.bumpCompleted()
 			continue
 		}
+
+		totalNew += run.JobsNew
+		totalUpdated += run.JobsUpdated
+		totalFound += run.JobsFound
+
+		s.setCompanyStatus(i, CompanyStatus{
+			Name: company.Name, Slug: company.Slug, ATSPlatform: company.ATSPlatform,
+			Status: "done", JobsFound: run.JobsFound, JobsNew: run.JobsNew, JobsUpdated: run.JobsUpdated,
+			StartedAt: &runStart, CompletedAt: &done,
+		})
+		s.bumpCompleted()
+
+		s.statusMu.Lock()
+		s.currentStatus.TotalJobsNew = totalNew
+		s.currentStatus.TotalJobsUpdated = totalUpdated
+		s.currentStatus.TotalJobsFound = totalFound
+		s.statusMu.Unlock()
 
 		s.logger.Info("crawl completed",
 			"company", company.Name,
@@ -203,7 +292,27 @@ func (s *Scheduler) runAllCrawls() {
 		)
 	}
 
-	s.logger.Info("crawl cycle complete")
+	completedAt := time.Now()
+	s.statusMu.Lock()
+	s.currentStatus.IsRunning = false
+	s.currentStatus.CompletedAt = &completedAt
+	s.statusMu.Unlock()
+
+	s.logger.Info("crawl cycle complete", "jobs_new", totalNew, "jobs_found", totalFound)
+}
+
+func (s *Scheduler) setCompanyStatus(idx int, cs CompanyStatus) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	if idx >= 0 && idx < len(s.currentStatus.Companies) {
+		s.currentStatus.Companies[idx] = cs
+	}
+}
+
+func (s *Scheduler) bumpCompleted() {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	s.currentStatus.CompletedCount++
 }
 
 func (s *Scheduler) crawlCompany(ctx context.Context, c Crawler, company models.Company) (*models.CrawlRun, error) {
@@ -293,15 +402,12 @@ func (s *Scheduler) processViaKafka(ctx context.Context, listings []RawJobListin
 // alert evaluation, and WebSocket notifications inline.
 func (s *Scheduler) processSynchronous(ctx context.Context, listings []RawJobListing, company models.Company) (jobsNew, jobsUpdated int) {
 	for _, listing := range listings {
-		// Check dedup via Redis
 		contentHash := listing.ContentHash()
-		seen, _ := s.redis.IsContentSeen(ctx, contentHash)
-		if seen {
-			jobsUpdated++ // content unchanged, just update last_seen_at
-			continue
-		}
 
-		// Convert to job model and upsert
+		// Always upsert so last_seen_at is refreshed and is_active = TRUE,
+		// regardless of whether Redis has seen this content hash before.
+		// This keeps PostgreSQL as the source of truth even when Redis state
+		// diverges (e.g. after a cache flush or between server restarts).
 		job := listing.ToJob(company.ID)
 		isNew, err := s.pg.UpsertJob(ctx, &job)
 		if err != nil {
@@ -312,19 +418,23 @@ func (s *Scheduler) processSynchronous(ctx context.Context, listings []RawJobLis
 			continue
 		}
 
-		// Mark content as seen in Redis
-		s.redis.MarkContentSeen(ctx, contentHash)
+		// Check Redis to decide whether to re-run enrichment.
+		// Enrichment is expensive (AI calls); skip it for unchanged content.
+		contentSeen, _ := s.redis.IsContentSeen(ctx, contentHash)
+		if !contentSeen {
+			s.redis.MarkContentSeen(ctx, contentHash)
 
-		// Attach company for downstream alert matching
-		job.Company = &company
+			// Attach company for downstream processing
+			job.Company = &company
 
-		// Run enrichment + alerts + ES indexing inline (if configured)
-		if s.syncProcessor != nil {
-			if err := s.syncProcessor.ProcessSync(ctx, &job, isNew); err != nil {
-				s.logger.Warn("sync processor error",
-					"title", job.Title,
-					"error", err,
-				)
+			// Run enrichment + alerts + ES indexing inline (if configured)
+			if s.syncProcessor != nil {
+				if err := s.syncProcessor.ProcessSync(ctx, &job, isNew); err != nil {
+					s.logger.Warn("sync processor error",
+						"title", job.Title,
+						"error", err,
+					)
+				}
 			}
 		}
 
@@ -363,6 +473,33 @@ type CrawlerHealthStatus struct {
 	CircuitOpen         bool          `json:"circuit_open"`
 	ConsecutiveFailures int           `json:"consecutive_failures"`
 	CooldownRemaining   time.Duration `json:"cooldown_remaining_ms"`
+}
+
+// CrawlStatus is a live snapshot of an ongoing or last-completed crawl cycle.
+type CrawlStatus struct {
+	IsRunning        bool            `json:"is_running"`
+	StartedAt        *time.Time      `json:"started_at,omitempty"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	TotalCompanies   int             `json:"total_companies"`
+	CompletedCount   int             `json:"completed_count"`
+	TotalJobsFound   int             `json:"total_jobs_found"`
+	TotalJobsNew     int             `json:"total_jobs_new"`
+	TotalJobsUpdated int             `json:"total_jobs_updated"`
+	Companies        []CompanyStatus `json:"companies"`
+}
+
+// CompanyStatus tracks the crawl progress for a single company.
+type CompanyStatus struct {
+	Name        string     `json:"name"`
+	Slug        string     `json:"slug"`
+	ATSPlatform string     `json:"ats_platform"`
+	Status      string     `json:"status"` // pending | running | done | failed
+	JobsFound   int        `json:"jobs_found"`
+	JobsNew     int        `json:"jobs_new"`
+	JobsUpdated int        `json:"jobs_updated"`
+	Error       string     `json:"error,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 // ErrUnsupportedATS is returned when a company uses an ATS we don't have a crawler for.

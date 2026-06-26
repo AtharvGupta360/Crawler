@@ -28,13 +28,28 @@ export default function JobCard({ job }) {
     ...(job.skills_required || []).slice(0, 3),
     ...(job.skills_preferred || []).slice(0, 2),
   ].slice(0, 5);
+  const isDemo = job.external_id?.startsWith('demo-');
 
   return (
     <Link to={`/jobs/${job.id}`} className="job-card">
       <div className="job-card-body">
         <div className="job-card-header">
           <span className="job-card-title">{job.title}</span>
-          {salary && <span className="job-card-salary">{salary}</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {isDemo && (
+              <span style={{
+                fontSize: '10px', fontWeight: 600, letterSpacing: '0.05em',
+                padding: '2px 6px', borderRadius: '4px',
+                background: 'var(--warning-bg)',
+                color: 'var(--warning)',
+                border: '1px solid hsla(35, 90%, 55%, 0.2)',
+                textTransform: 'uppercase',
+              }}>
+                Demo
+              </span>
+            )}
+            {salary && <span className="job-card-salary">{salary}</span>}
+          </div>
         </div>
 
         <div className="job-card-company">

@@ -1,4 +1,4 @@
-.PHONY: help dev build run test clean infra infra-down migrate web-install web-dev web-build
+.PHONY: help dev build run test clean infra infra-down migrate web-install web-dev web-build prod prod-run seed
 
 # Default target
 help: ## Show this help
@@ -76,4 +76,22 @@ web-dev: ## Run frontend dev server (port 5173, proxies to :8080)
 
 web-build: ## Build frontend for production (output: web/dist/)
 	cd web && npm run build
+
+# ─────────────────────────────────────────────
+# Production
+# ─────────────────────────────────────────────
+
+prod: web-build build ## Build frontend + Go binary (single deployable)
+	@echo "Production binary ready at bin/jobcrawl"
+
+prod-run: prod ## Build and run production binary
+	./bin/jobcrawl
+
+# ─────────────────────────────────────────────
+# Demo Data
+# ─────────────────────────────────────────────
+
+seed: ## Seed database with demo data (150 jobs, skills, trends, demo user)
+	go run ./cmd/seed/
+
 
